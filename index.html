@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Academic PDF Quick Navigator – Friendly Prototype</title>
+<style>
+  :root{
+    --bg:#f7f8fc; --panel:#fff; --fg:#111; --muted:#5b5b66; --line:#e7e7ef; --pri:#304ffe;
+  }
+  [data-theme="dark"]{
+    --bg:#0f1220; --panel:#151a2c; --fg:#f5f7ff; --muted:#a5acc7; --line:#28304a; --pri:#6b8bff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+
+  header{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+  header input[type="file"]{display:none}
+  .btn{border:0;background:#eef0f7;color:#111;padding:8px 12px;border-radius:10px;font-weight:600;cursor:pointer}
+  .btn.primary{background:var(--pri);color:#fff}
+  .btn.ghost{background:transparent;border:1px solid var(--line)}
+  .btn.small{padding:6px 10px;border-radius:8px}
+  .input{padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--fg)}
+  .kbd{padding:2px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace}
+  .row{display:flex;gap:8px;align-items:center}
+  .grow{flex:1}
+
+  .wrap{display:grid;grid-template-columns:310px 1fr;min-height:calc(100vh - 54px)}
+  aside{border-right:1px solid var(--line);background:var(--panel)}
+  main{position:relative;overflow:auto}
+
+  .tabs{display:flex;border-bottom:1px solid var(--line)}
+  .tab{flex:1;text-align:center;padding:10px 8px;cursor:pointer;font-weight:600;border-bottom:2px solid transparent}
+  .tab.active{border-color:var(--pri);color:var(--pri);background:linear-gradient(0deg, rgba(48,79,254,0.08), transparent)}
+  .panel{display:none;max-height:calc(100vh - 100px);overflow:auto;padding:10px}
+  .panel.active{display:block}
+  .list{display:flex;flex-direction:column;gap:6px}
+  .item{padding:6px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+  .item:hover{background:rgba(48,79,254,.08)}
+  .item .meta{font-size:12px;color:var(--muted)}
+  .empty{padding:8px 10px;color:var(--muted)}
+  .thumb{display:flex;align-items:center;gap:8px;padding:6px;border-radius:8px;cursor:pointer}
+  .thumb:hover{background:rgba(48,79,254,.08)}
+  .thumb canvas{width:50px;height:auto;border:1px solid var(--line);border-radius:4px;background:#fff}
+
+  .toolbar{position:sticky;top:0;z-index:4;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px;border-bottom:1px solid var(--line);background:var(--panel)}
+  #viewer{padding:12px}
+  .page{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:14px auto;max-width:900px;position:relative}
+  canvas{width:100%;height:auto;display:block;border-radius:12px}
+  .crumbs{position:sticky;top:52px;margin:6px auto 0;max-width:900px;z-index:3}
+  .pill{display:inline-block;padding:4px 10px;border-radius:999px;background:#eef2ff;color:#1a3fb5;font-size:12px;border:1px solid var(--line)}
+  [data-theme="dark"] .pill{background:#1f2744;color:#cbd7ff}
+
+  .drop{border:2px dashed #93a0ff;border-radius:14px;padding:22px;text-align:center;margin:8px;background:rgba(48,79,254,.06)}
+  .drop.dragover{background:rgba(48,79,254,.12)}
+
+  .toast{position:fixed;right:16px;bottom:16px;background:var(--panel);border:1px solid var(--line);box-shadow:0 4px 18px rgba(0,0,0,.15);border-radius:12px;padding:10px 12px;display:none}
+  .toast.show{display:block}
+  .spinner{width:18px;height:18px;border:3px solid var(--line);border-top-color:var(--pri);border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <label class="btn" for="file">Open PDF</label>
+  <input id="file" type="file" accept="application/pdf" />
+  <div id="drop" class="drop grow" aria-label="Drag a PDF here">Drag & drop a PDF here, or click <span class="kbd">Open PDF</span>.</div>
+  <div class="row">
+    <button id="themeBtn" class="btn ghost small" aria-pressed="false" title="Toggle theme">🌗 Theme</button>
+    <button id="helpBtn" class="btn ghost small" title="Help & Shortcuts">❓ Help</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <aside>
+    <div class="tabs" role="tablist">
+      <div class="tab active" data-tab="toc" role="tab" aria-selected="true">TOC</div>
+      <div class="tab" data-tab="figs" role="tab" aria-selected="false">Figs/Tables</div>
+      <div class="tab" data-tab="eqs" role="tab" aria-selected="false">Equations</div>
+      <div class="tab" data-tab="search" role="tab" aria-selected="false">Search</div>
+      <div class="tab" data-tab="thumbs" role="tab" aria-selected="false">Thumbnails</div>
+    </div>
+    <div id="panel-toc" class="panel active" role="tabpanel">
+      <div id="toc" class="list"><div class="empty">Open a PDF to generate TOC…</div></div>
+    </div>
+    <div id="panel-figs" class="panel" role="tabpanel">
+      <div id="figs" class="list"><div class="empty">No items yet.</div></div>
+    </div>
+    <div id="panel-eqs" class="panel" role="tabpanel">
+      <div id="eqs" class="list"><div class="empty">No items yet.</div></div>
+    </div>
+    <div id="panel-search" class="panel" role="tabpanel">
+      <div class="row" style="margin-bottom:8px">
+        <input id="q" class="input grow" placeholder="Search (press / to focus)" />
+        <button id="searchBtn" class="btn small">Search</button>
+        <button id="clearBtn" class="btn ghost small">Clear</button>
+      </div>
+      <div id="results" class="list"><div class="empty">No search yet.</div></div>
+    </div>
+    <div id="panel-thumbs" class="panel" role="tabpanel">
+      <div id="thumbs" class="list"><div class="empty">No thumbnails yet.</div></div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <div class="row">
+        <button id="prevBtn" class="btn small" title="Prev page (k)">◀</button>
+        <div class="row">
+          <input id="pageInput" class="input" style="width:70px" value="1" aria-label="Page number" />
+          <span id="pageTotal" class="muted">/ —</span>
+        </div>
+        <button id="nextBtn" class="btn small" title="Next page (j)">▶</button>
+      </div>
+      <div class="row">
+        <button id="fitBtn" class="btn small" title="Fit width">Fit</button>
+        <button id="zoomOutBtn" class="btn small" title="Zoom out (-)">–</button>
+        <button id="zoomInBtn" class="btn small" title="Zoom in (+)">+</button>
+      </div>
+    </div>
+
+    <div class="crumbs"><span class="pill" id="crumb">You are here: —</span></div>
+    <div id="viewer" aria-live="polite"></div>
+    <div id="loading" class="row" style="justify-content:center; padding:16px; display:none;">
+      <div class="spinner" aria-hidden="true"></div><span> Loading pages…</span>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<!-- PDF.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.10.111/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.10.111/pdf.worker.min.js";
+
+const el = {
+  file: document.getElementById('file'),
+  drop: document.getElementById('drop'),
+  tabs: [...document.querySelectorAll('.tab')],
+  panels: {
+    toc: document.getElementById('panel-toc'),
+    figs: document.getElementById('panel-figs'),
+    eqs: document.getElementById('panel-eqs'),
+    search: document.getElementById('panel-search'),
+    thumbs: document.getElementById('panel-thumbs'),
+  },
+  toc: document.getElementById('toc'),
+  figs: document.getElementById('figs'),
+  eqs: document.getElementById('eqs'),
+  results: document.getElementById('results'),
+  thumbs: document.getElementById('thumbs'),
+
+  viewer: document.getElementById('viewer'),
+  pageInput: document.getElementById('pageInput'),
+  pageTotal: document.getElementById('pageTotal'),
+  prevBtn: document.getElementById('prevBtn'),
+  nextBtn: document.getElementById('nextBtn'),
+  fitBtn: document.getElementById('fitBtn'),
+  zoomInBtn: document.getElementById('zoomInBtn'),
+  zoomOutBtn: document.getElementById('zoomOutBtn'),
+
+  search: document.getElementById('q'),
+  searchBtn: document.getElementById('searchBtn'),
+  clearBtn: document.getElementById('clearBtn'),
+
+  crumb: document.getElementById('crumb'),
+  toast: document.getElementById('toast'),
+  loading: document.getElementById('loading'),
+  themeBtn: document.getElementById('themeBtn'),
+  helpBtn: document.getElementById('helpBtn'),
+};
+
+let pdfDoc = null;
+let pageText = []; // [{page, text}]
+let scale = 1.25;
+let currentPage = 1;
+let rendering = new Map(); // page -> Promise
+let rendered = new Set();  // pages already rendered
+
+// ---------- UI helpers ----------
+function showToast(msg, ms=2200){
+  el.toast.textContent = msg;
+  el.toast.classList.add('show');
+  setTimeout(()=>el.toast.classList.remove('show'), ms);
+}
+
+function setActiveTab(tabId){
+  el.tabs.forEach(t=>{
+    const active = t.dataset.tab === tabId;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  Object.entries(el.panels).forEach(([k,p])=> p.classList.toggle('active', k===tabId));
+}
+
+function setLoading(on){ el.loading.style.display = on ? 'flex' : 'none'; }
+
+function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+function scrollToPage(pageNum){
+  const node = document.querySelector(`.page[data-page="${pageNum}"]`);
+  if(node){ node.scrollIntoView({behavior:'smooth', block:'start'}); }
+}
+
+function updateCrumb(pageNum){
+  el.crumb.textContent = `You are here: p.${pageNum} – ${inferSectionForPage(pageNum)}`;
+}
+
+function updatePageInput(){
+  el.pageInput.value = String(currentPage);
+}
+
+// ---------- Rendering ----------
+async function ensurePageRendered(num){
+  if(rendered.has(num)) return;
+  if(rendering.has(num)) return rendering.get(num);
+
+  const p = (async ()=>{
+    const page = await pdfDoc.getPage(num);
+    const viewport = page.getViewport({scale});
+    // container
+    let wrap = document.querySelector(`.page[data-page="${num}"]`);
+    if(!wrap){
+      wrap = document.createElement('div');
+      wrap.className = 'page';
+      wrap.dataset.page = num;
+      el.viewer.appendChild(wrap);
+    }else{
+      wrap.innerHTML = '';
+    }
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    wrap.appendChild(canvas);
+    await page.render({canvasContext:ctx, viewport}).promise;
+    rendered.add(num);
+  })();
+  rendering.set(num, p);
+  await p;
+}
+
+async function renderVisibleAround(center){
+  setLoading(true);
+  // render current & neighbors
+  const pagesToRender = [center, center-1, center+1, center-2, center+2]
+    .filter(p=> p>=1 && p<=pdfDoc.numPages);
+  for(const p of pagesToRender) await ensurePageRendered(p);
+  setLoading(false);
+}
+
+// ---------- Text extraction & anchors ----------
+function setList(target, items, emptyText){
+  target.innerHTML = '';
+  if(!items || items.length===0){
+    target.innerHTML = `<div class="empty">${emptyText}</div>`;
+    return;
+  }
+  items.forEach(it=>{
+    const d = document.createElement('div');
+    d.className = target===el.thumbs ? 'thumb' : 'item';
+    if(target===el.thumbs){
+      d.innerHTML = `<canvas data-thumb="${it.page}" width="50" height="70" aria-label="Page ${it.page}"></canvas><div>p.${it.page}</div>`;
+    }else{
+      d.innerHTML = `<div>${it.title}</div><div class="meta">p.${it.page}${it.snip?` · ${it.snip}`:''}</div>`;
+    }
+    d.onclick = ()=>{ currentPage = it.page; updatePageInput(); renderVisibleAround(currentPage); scrollToPage(it.page); updateCrumb(it.page); };
+    target.appendChild(d);
+  });
+}
+
+function inferSectionForPage(pageNum){
+  const items = [...el.toc.querySelectorAll('.item')].map(n=>{
+    const meta = n.querySelector('.meta')?.textContent || '';
+    const p = parseInt((meta.match(/p\.(\d+)/)||[])[1]||'1',10);
+    const t = n.firstChild?.textContent || '';
+    return {p, t};
+  });
+  let best = items.filter(x=>x.p<=pageNum).sort((a,b)=>b.p-a.p)[0];
+  return best?best.t:`Page ${pageNum}`;
+}
+
+function extractAnchors(){
+  const toc = [], figs = [], eqs = [];
+  const sectionKeywords = ['Abstract','Introduction','Related Work','Background','Method','Methods','Approach','Model','Experiments','Results','Evaluation','Ablation','Discussion','Conclusion','Appendix','References'];
+  for(const obj of pageText){
+    if(!obj) continue;
+    const {page, text} = obj;
+    const T = text;
+    if(sectionKeywords.some(k=> new RegExp(`\\b${k}\\b`, 'i').test(T))){
+      sectionKeywords.filter(k=> new RegExp(`\\b${k}\\b`, 'i').test(T))
+        .forEach(k=> toc.push({title:k, page, snip:''}));
+    }
+    const numHead = T.match(/\b\d+(\.\d+)*\s+[A-Z][A-Za-z0-9\- ]{2,60}/g);
+    if(numHead){ numHead.slice(0,3).forEach(h=> toc.push({title:h.trim(), page, snip:''})); }
+    const figMatches = T.match(/\b(Figure|Fig\.|Table)\s*\d+[A-Za-z]?/g);
+    if(figMatches){ [...new Set(figMatches)].forEach(f=> figs.push({title:f.trim(), page, snip:''})); }
+    const eqMatches  = T.match(/\b(Eq\.?|Equation)\s*\(?\d{1,3}\)?/g) || T.match(/\(\d{1,3}\)\s*[=A-Za-z]/g);
+    if(eqMatches){ [...new Set(eqMatches)].forEach(e=> eqs.push({title:e.replace(/\s+/g,' '), page, snip:''})); }
+  }
+  const uniq = (arr)=> [...new Map(arr.map(x=>[`${x.page}-${x.title}`,x])).values()].sort((a,b)=>a.page-b.page);
+  setList(el.toc,  uniq(toc),  'No headings detected.');
+  setList(el.figs, uniq(figs), 'No figures/tables detected.');
+  setList(el.eqs,  uniq(eqs),  'No equations detected.');
+}
+
+async function renderThumbnails(){
+  el.thumbs.innerHTML = '';
+  for(let p=1; p<=pdfDoc.numPages; p++){
+    const page = await pdfDoc.getPage(p);
+    const viewport = page.getViewport({scale:0.22});
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    c.width = viewport.width; c.height = viewport.height;
+    const div = document.createElement('div');
+    div.className='thumb';
+    div.appendChild(c);
+    const label = document.createElement('div'); label.textContent = `p.${p}`; div.appendChild(label);
+    div.onclick = ()=>{ currentPage = p; updatePageInput(); renderVisibleAround(currentPage); scrollToPage(p); updateCrumb(p); };
+    el.thumbs.appendChild(div);
+    await page.render({canvasContext:ctx, viewport}).promise;
+  }
+}
+
+// ---------- Search ----------
+function runSearch(query){
+  const q = query.trim();
+  el.results.innerHTML = '';
+  if(!q){ el.results.innerHTML = '<div class="empty">No search yet.</div>'; return; }
+  const hits = [];
+  for(const obj of pageText){
+    if(!obj) continue;
+    const {page, text} = obj;
+    const idx = text.toLowerCase().indexOf(q.toLowerCase());
+    if(idx>=0){
+      const start = Math.max(0, idx-40), end = Math.min(text.length, idx+40);
+      const snip = text.slice(start, end).replace(/\s+/g,' ');
+      hits.push({title:q, page, snip:'…'+snip+'…'});
+    }
+  }
+  if(hits.length===0){ el.results.innerHTML = '<div class="empty">No matches.</div>'; return; }
+  setList(el.results, hits, 'No matches.');
+  setActiveTab('search');
+  showToast(`Found ${hits.length} page(s)`);
+}
+
+// ---------- Load PDF ----------
+async function loadPDF(file){
+  if(!file){ showToast('No file selected'); return; }
+  if(file.type!=='application/pdf'){ showToast('Please choose a PDF file'); return; }
+  el.viewer.innerHTML=''; pageText = []; rendered.clear(); rendering.clear();
+  setLoading(true);
+  const buf = await file.arrayBuffer();
+  pdfDoc = await pdfjsLib.getDocument({data:buf}).promise;
+  el.pageTotal.textContent = `/ ${pdfDoc.numPages}`;
+  currentPage = 1; updatePageInput();
+  // Create page placeholders for lazy rendering
+  for(let i=1;i<=pdfDoc.numPages;i++){
+    const holder = document.createElement('div');
+    holder.className='page';
+    holder.dataset.page = i;
+    holder.style.minHeight = '1200px'; // placeholder height, replaced on render
+    el.viewer.appendChild(holder);
+  }
+  // Extract text (for anchors/search)
+  for(let i=1;i<=pdfDoc.numPages;i++){
+    const page = await pdfDoc.getPage(i);
+    const tc = await page.getTextContent();
+    const text = tc.items.map(it=>it.str).join(' ');
+    pageText[i-1] = {page:i, text};
+  }
+  extractAnchors();
+  renderThumbnails();
+  await renderVisibleAround(currentPage);
+  setLoading(false);
+  updateCrumb(currentPage);
+  showToast('PDF loaded ✔');
+}
+
+// ---------- Scroll spy & lazy render ----------
+const io = new IntersectionObserver(entries=>{
+  const vis = entries.filter(e=>e.isIntersecting).sort((a,b)=>a.boundingClientRect.top - b.boundingClientRect.top)[0];
+  if(!vis) return;
+  const p = parseInt(vis.target.dataset.page,10);
+  currentPage = p; updatePageInput(); updateCrumb(p);
+  // render neighbors
+  renderVisibleAround(p);
+}, {root:null, rootMargin:"0px 0px -60% 0px", threshold:0.01});
+
+const onViewerMutation = new MutationObserver(()=>{
+  document.querySelectorAll('.page').forEach(pg=> io.observe(pg));
+});
+
+// ---------- Events ----------
+el.file.addEventListener('change', e=>{ const f=e.target.files?.[0]; if(f) loadPDF(f); });
+['dragenter','dragover'].forEach(evt=> el.drop.addEventListener(evt, e=>{ e.preventDefault(); el.drop.classList.add('dragover'); }));
+['dragleave','drop'].forEach(evt=> el.drop.addEventListener(evt, e=>{ e.preventDefault(); el.drop.classList.remove('dragover'); }));
+el.drop.addEventListener('drop', e=>{ const f = e.dataTransfer.files?.[0]; if(f) loadPDF(f); });
+
+el.tabs.forEach(t=> t.addEventListener('click', ()=> setActiveTab(t.dataset.tab)));
+
+el.prevBtn.onclick = ()=>{ currentPage = clamp(currentPage-1,1,pdfDoc?.numPages||1); updatePageInput(); scrollToPage(currentPage); };
+el.nextBtn.onclick = ()=>{ currentPage = clamp(currentPage+1,1,pdfDoc?.numPages||1); updatePageInput(); scrollToPage(currentPage); };
+el.pageInput.addEventListener('change', ()=>{
+  const n = parseInt(el.pageInput.value,10);
+  if(!isNaN(n) && pdfDoc){ currentPage = clamp(n,1,pdfDoc.numPages); scrollToPage(currentPage); }
+});
+
+el.zoomInBtn.onclick = ()=>{ scale = Math.min(scale+0.15, 2.5); rendered.clear(); renderVisibleAround(currentPage); };
+el.zoomOutBtn.onclick = ()=>{ scale = Math.max(scale-0.15, 0.6); rendered.clear(); renderVisibleAround(currentPage); };
+el.fitBtn.onclick = ()=>{ scale = 1.25; rendered.clear(); renderVisibleAround(currentPage); };
+
+el.searchBtn.onclick = ()=> runSearch(el.search.value);
+el.clearBtn.onclick = ()=>{ el.search.value=''; el.results.innerHTML='<div class="empty">No search yet.</div>'; };
+el.search.addEventListener('keydown', e=>{ if(e.key==='Enter'){ runSearch(el.search.value); } });
+
+el.themeBtn.onclick = ()=>{
+  const dark = document.documentElement.getAttribute('data-theme')==='dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'light':'dark');
+  el.themeBtn.setAttribute('aria-pressed', (!dark).toString());
+};
+el.helpBtn.onclick = ()=>{
+  alert(`Shortcuts:
+  / focus search
+  j / k: next / prev page
+  + / -: zoom in / out
+  g: go to page (focus page box)
+  Fit: reset zoom to fit width
+  Drag & drop a PDF or use Open PDF`);
+};
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e)=>{
+  if(e.target.matches('input, textarea')) return;
+  if(e.key==='/'){ e.preventDefault(); el.search.focus(); return; }
+  if(e.key==='j'){ e.preventDefault(); el.nextBtn.click(); return; }
+  if(e.key==='k'){ e.preventDefault(); el.prevBtn.click(); return; }
+  if(e.key==='+'){ e.preventDefault(); el.zoomInBtn.click(); return; }
+  if(e.key==='-'){ e.preventDefault(); el.zoomOutBtn.click(); return; }
+  if(e.key==='g'){ e.preventDefault(); el.pageInput.focus(); el.pageInput.select(); return; }
+});
+
+// After viewer DOM changes, attach scroll observer
+onViewerMutation.observe(el.viewer, {childList:true});
+
+</script>
+</body>
+</html>
